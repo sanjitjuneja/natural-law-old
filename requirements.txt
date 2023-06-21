@@ -1,0 +1,7 @@
+openai
+streamlit
+langchain
+streamlit-authenticator
+google-search-results
+faiss-cpu
+tiktoken
