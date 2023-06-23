@@ -1,16 +1,18 @@
 # IMPORTS
 import os
+import sqlite3
+import time
 import streamlit as st
 from langchain import OpenAI
+from streamlit_chat import message
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 
 from Auth import Auth
 from Sidebar import Sidebar
-from calvin_model.calvin_agi import CalvinAGI
 
 # SETUP: PAGE CONFIGURATION
-st.set_page_config(page_title="Calvin: AI Shopper", page_icon="assets/calvin.png", layout="centered", initial_sidebar_state="auto") 
+st.set_page_config(page_title="Natural Law", page_icon="assets/natural-law.png", layout="centered", initial_sidebar_state="auto") 
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -24,18 +26,31 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 auth = Auth()
 
 
-# FUNCTION: DEFINE INITIAL EMBEDDINGS
-def initial_embeddings(openai_api_key, first_task):
-    with st.spinner("Preparing Model..."):
-        # Define your embedding model
-        embeddings = OpenAIEmbeddings(
-            openai_api_key=openai_api_key, model="text-embedding-ada-002"
-        )
+# DATABASE SETUP
+conn = sqlite3.connect('data.db', check_same_thread=False)
+c = conn.cursor()
+c.execute("""CREATE TABLE IF NOT EXISTS responses(username, response)""")
+c.execute("""CREATE TABLE IF NOT EXISTS prompts(username, prompt)""")
+c.execute("""CREATE TABLE IF NOT EXISTS stored_sessions(username, sessions)""")
+conn.commit()
 
-        vectorstore = FAISS.from_texts(
-            ["_"], embeddings, metadatas=[{"task": first_task}]
-        )
-    return vectorstore
+
+# SETUP: INITIALIZE SESSION STATES
+if auth.authentication_status:
+    if "responses" not in st.session_state:
+        st.session_state["responses"] = c.execute("""SELECT response FROM responses WHERE username = ?""", (auth.username,)).fetchall()
+    if "prompts" not in st.session_state:
+        st.session_state["prompts"] = c.execute("""SELECT prompt FROM prompts WHERE username = ?""", (auth.username,)).fetchall()
+    if "stored_sessions" not in st.session_state:
+        st.session_state["stored_sessions"] = c.execute("""SELECT sessions FROM stored_sessions WHERE username = ?""", (auth.username,)).fetchall()
+    if "disableWarning" not in st.session_state:
+        st.session_state["disableWarning"] = False
+    conn.close()
+
+
+# RUN NATURAL LAW
+def natural_law(prompt):
+	return "This would be Natural Law's response."
 
 
 
@@ -43,14 +58,14 @@ def initial_embeddings(openai_api_key, first_task):
 def main():
 
 	# APP LAYOUT
-	st.image("assets/calvin.png", width=150)
-	st.title("Calvin: Your AI Shopper 🛍️")
+	st.image("assets/natural-law.png", width=150)
+	st.title("Natural Law: Your AI Philosopher 🧠")
 	status_bar = st.text(" ")
 	st.markdown(
 		""" 
-			> :black[**Hey There, I'm Calvin 👋**]
-			> :black[*🛒 I'm your personal intelligent shopper, here to enhance your buying experience with AI.*]
-			> :black[*🧠 Plus, I directly integrate with the web to guide you through every step of the way!*]
+			> :black[**Hey There, I'm Natural Law 👋**]
+			> :black[*🧠 I'm your personal intelligent philosopher, trained on the brightest philosophical minds of the past.*]
+			> :black[*🤔 Ask for my stance on something or anything related to the history of philosophy and I will assist!*]
 			"""
 	)
 	st.text("---")
@@ -59,42 +74,67 @@ def main():
 	# SIDEBAR
 	sidebar = Sidebar(auth)
 	sidebar.main()
-
-
-	# MAIN
-	if auth.get_authentication_status():
-		OBJECTIVE = """You are Calvin, an AI Intelligent Shopper who enhances people's buying experience when shopping online. You perform one task based on the following objective: {objective}. Take into account these previously completed tasks: {context}."""
-		MAX_ITERATIONS = sidebar.get_max_iterations()
+        
+	# MAIN: RUN NATURAL LAW
+	def run_model(specific_prompt: str = None):
+		if text_input == "" and specific_prompt is None:
+			st.session_state["disableWarning"] = True
+			return
+		st.session_state["disableWarning"] = False
+		# retrieve input
+		cur_prompt = specific_prompt if specific_prompt is not None else text_input
 		
-		user_input, submit = st.columns([7, 1])
-		first_task = user_input.text_input(
-			label="Ask Calvin Anything",
-			key="user_input",
-			placeholder="Type Here...",
-			value="Find me a premium webcam good for video calls.",
-			label_visibility="collapsed",
-		)
-		user_submit = submit.button("Submit", type="primary")
-		vectorstore = initial_embeddings(os.environ["OPENAI_API_KEY"], first_task)
+		# Update status bar
+		for i in range(30):
+			status_bar.progress(i, text="Sending " + "'" + cur_prompt[0:100] + "'...")
+			time.sleep(0.1)
+		st.text(" ")
+
+		# Get response
+		status_bar.progress(30, text="Executing...")
+		response = natural_law({"objective": cur_prompt})
+
+		# Update status bar
+		for i in range(30, 100):
+			status_bar.progress(i, text="Generating...")
+			time.sleep(0.02)
+		status_bar.progress(100)
+
+		# Save response
+		st.session_state["responses"].append(response)
+		st.session_state["prompts"].append(cur_prompt)
+		conn = sqlite3.connect('data.db', check_same_thread=False)
+		c = conn.cursor()
+		c.execute("""INSERT INTO responses VALUES (?, ?)""", (auth.username, str(response)))
+		c.execute("""INSERT INTO prompts VALUES (?, ?)""", (auth.username, str(cur_prompt)))
+		conn.commit()
+		conn.close()
 
 
-		if user_submit:
-			if first_task == "":
-				st.warning("Please Enter A Prompt")
-			else:
-				try:
-					calvin = CalvinAGI.from_llm_and_objectives(
-						llm=OpenAI(openai_api_key=os.environ["OPENAI_API_KEY"]),
-						vectorstore=vectorstore,
-						objective=OBJECTIVE,
-						first_task=first_task,
-						verbose=False,
-					)
-					with st.spinner("🛍️ Calvin Working ..."):
-						calvin.run(max_iterations=MAX_ITERATIONS)
+	# SUBMIT BUTTON
+	if auth.authentication_status:
+		with st.form("submit_user_input", clear_on_submit=True):
+			input, submit = st.columns([4, 1])
+			text_input = input.text_input(
+				"Ask Natural Law Anything:",
+				key="input",
+				placeholder="Type Here...",
+				label_visibility="collapsed",
+			)
+			submit.form_submit_button(label="Submit", on_click=run_model, type="primary", use_container_width=True)
 
-				except Exception as e:
-					st.error(e)
+
+	# MAIN: DISPLAY EMPTY PROMPT WARNING
+	if auth.authentication_status and st.session_state["disableWarning"]:
+		st.warning("Please Enter A Prompt")
+		st.text(" ")
+
+
+	# MAIN: DISPLAY CHAT HISTORY
+	if auth.authentication_status and st.session_state["responses"]:
+		for i in range(len(st.session_state["responses"])-1, -1, -1):
+			message(st.session_state["responses"][i], key=str(i))
+			message(st.session_state["prompts"][i], is_user=True, key=str(i)+"_user")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
+import sqlite3
 import yaml
 import streamlit as st
-import streamlit_authenticator as stauth
 from Auth import Auth
 
 class Sidebar():
@@ -9,25 +9,49 @@ class Sidebar():
 		self.authentication_status = auth.get_authentication_status()
 		self.username = auth.get_username()
 		self.authenticator = auth.get_authenticator()
-		self.max_iterations = 5
+		self.temperature = 0.5
 
-	# FUNCTION: TRY EXAMPLE
-	# def try_example(self) -> str:
-	# 	rand = random.randint(0, 2)
-	# 	example_prompt = ""
-	# 	if rand == 0:
-	# 		example_prompt = "Search for the iPhone 14 Pro case with the most value."
-	# 	elif rand == 1:
-	# 		example_prompt = "Formulate a shopping cart with all designer items with a total less than $1000"
-	# 	else:
-	# 		example_prompt = "Find me a premium webcam good for video calls."
-	# 	return example_prompt
-
-	def get_max_iterations(self) -> int:
-		return self.max_iterations
+	def get_temperature(self):
+		return self.temperature
 	
-	def set_max_iterations(self, max_iterations: int):
-		self.max_iterations = max_iterations
+	def set_temperature(self, temperature):
+		self.temperature = temperature
+	
+	# FUNCTION: START A NEW CHAT
+	def new_chat(self):
+		"""
+		Clears session state and starts a new chat.
+		"""
+		if st.session_state["responses"]:
+			save = []
+			for i in range(len(st.session_state["responses"]) - 1, -1, -1):
+				save.append("User:" + str(st.session_state["prompts"][i]))
+				save.append("Bot:" + str(st.session_state["responses"][i]))
+			st.session_state["stored_sessions"].append(save)
+			conn = sqlite3.connect('data.db', check_same_thread=False)
+			c = conn.cursor()
+			c.execute("""INSERT INTO stored_sessions VALUES (?, ?)""", (self.username, str(save)))
+			c.execute("""DELETE FROM responses WHERE username = ?""", (self.username,))
+			c.execute("""DELETE FROM prompts WHERE username = ?""", (self.username,))
+			conn.commit()
+			conn.close()
+			st.session_state["responses"] = []
+			st.session_state["prompts"] = []
+        
+
+	# FUNCTION: CLEAR CHAT HISTORY
+	def clear_history(self):
+		conn = sqlite3.connect('data.db', check_same_thread=False)
+		c = conn.cursor()
+		c.execute("""DELETE FROM stored_sessions WHERE username = ?""", (self.username,))
+		c.execute("""DELETE FROM responses WHERE username = ?""", (self.username,))
+		c.execute("""DELETE FROM prompts WHERE username = ?""", (self.username,))
+		conn.commit()
+		conn.close()
+		del st.session_state.stored_sessions
+		del st.session_state.responses
+		del st.session_state.prompts
+
 
 	def main(self):
 		# SIDEBAR: AUTH CHECK
@@ -35,7 +59,7 @@ class Sidebar():
 			st.sidebar.error('Username/password is incorrect')
 		elif self.authentication_status is None:
 			st.sidebar.warning('Please enter your username and password')
-			st.warning('👈 Please Use Sidebar To Login/Register To Use Calvin')
+			st.warning('👈 Please Use Sidebar To Login/Register To Use Natural Law')
 
 
 		# SIDEBAR: REGISTER & FORGOT FORMS
@@ -78,27 +102,44 @@ class Sidebar():
 		# SIDEBAR: APP INFO
 		if self.authentication_status:
 			st.sidebar.header("Welcome " + self.name + "! 👋")
-			st.sidebar.markdown(""":black[Use Calvin to help you shop!]""")
-			# st.sidebar.button("⌛️ Try Example", on_click=self.try_example, type="secondary")
+			st.sidebar.markdown(""":black[Use Natural Law to help you think!]""")
 			with st.sidebar.expander("✍️ Prompt Examples", expanded=False):
 				st.markdown(
 				""" 
-					:black[For Best Results, Use An Objective Format:\n]
+					:black[For Best Results, Use A Similar Format To:\n]
 					------
-					:black[1. *"Find me a premium webcam good for video calls."*]
-					:black[2. *"Search for the iPhone 14 Pro case with the most value."*]
-					:black[3. *"Formulate a shopping cart with all designer items with a total less than $1000"*]
+					:black[1. *"How does an AI understand the concept of consciousness?"*]
+					:black[2. *"What is your perspective on the meaning of life?"*]
+					:black[3. *"Can AI truly experience emotions, or is it just simulating them based on programmed responses?"*]
 					"""
 				)
 			st.sidebar.progress(100)
-		
+
+
 
 		# SIDEBAR: CHAT HISTORY
 		if self.authentication_status:
+			st.sidebar.header("Chat History")
+			st.sidebar.button("New Chat", on_click=self.new_chat, type="primary")
+			if st.session_state.stored_sessions:
+				st.sidebar.button("Clear History", on_click=self.clear_history, type="secondary")
+			st.sidebar.text(" ")
+
+			# SIDEBAR: DISPLAY STORED SESSIONS
+			if st.session_state.stored_sessions:
+				for i in range(len(st.session_state.stored_sessions) - 1, -1, -1):
+					with st.sidebar.expander(label=f"Conversation {i+1}", expanded=False):
+						st.write(st.session_state.stored_sessions[i])
+			st.sidebar.text(" ")
+			st.sidebar.progress(100)
+
+
+		# SIDEBAR: SETTINGS, ACCOUNT SETTINGS
+		if self.authentication_status:
 			st.sidebar.header("Settings")
 			with st.sidebar.expander("🧠 Model Settings ", expanded=False):
-				iterations = st.slider("Max Iterations", min_value=1, max_value=10, step=1, value=5)
-				self.set_max_iterations(iterations)
+				temp = st.slider("Randomness", min_value=0.0, max_value=1.0, step=0.01, value=0.5, format='%f',)
+				self.set_temperature(temp)
 			with st.sidebar.expander("🛠️ Account Settings", expanded=False):
 				try:
 					if self.authenticator.update_user_details(self.username, 'Update user details'):
